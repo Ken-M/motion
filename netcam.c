@@ -2026,6 +2026,11 @@ static void *netcam_handler_loop(void *arg)
                     MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Trying to re-connect");
                 
             }
+            /* Attempt to re-connect to rtsp server */
+            else if (netcam->rtsp) {
+                MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Trying to re-connect to rtsp server");
+                netcam_reconnect_rtsp(netcam);
+            }
             continue;
         }
         /*
@@ -2653,8 +2658,8 @@ void netcam_cleanup(netcam_context_ptr netcam, int init_retry_flag)
         ftp_free_context(netcam->ftp);
     else 
         netcam_disconnect(netcam);
-    
 
+ 
     if (netcam->response != NULL) 
         free(netcam->response);
 
@@ -2711,19 +2716,19 @@ int netcam_next(struct context *cnt, unsigned char *image)
     if (netcam->caps.streaming == NCS_RTSP) {
     	memcpy(image, netcam->latest->ptr, netcam->latest->used);
     	return 0;
-    }
+    } else {
+		/*
+		 * If an error occurs in the JPEG decompression which follows this,
+		 * jpeglib will return to the code within this 'if'.  Basically, our
+		 * approach is to just return a NULL (failed) to the caller (an
+		 * error message has already been produced by the libjpeg routines).
+		 */
+		if (setjmp(netcam->setjmp_buffer))
+			return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
 
-    /*
-     * If an error occurs in the JPEG decompression which follows this,
-     * jpeglib will return to the code within this 'if'.  Basically, our
-     * approach is to just return a NULL (failed) to the caller (an
-     * error message has already been produced by the libjpeg routines).
-     */
-    if (setjmp(netcam->setjmp_buffer)) 
-        return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
-    
-    /* If there was no error, process the latest image buffer. */
-    return netcam_proc_jpeg(netcam, image);
+		/* If there was no error, process the latest image buffer. */
+		return netcam_proc_jpeg(netcam, image);
+    }
 }
 
 /**
@@ -2731,7 +2736,7 @@ int netcam_next(struct context *cnt, unsigned char *image)
  *
  *      This routine is called from the main motion thread.  It's job is
  *      to open up the requested camera device and do any required
- *      initialisation.  If the camera is a streaming type, then this
+ *      initialization.  If the camera is a streaming type, then this
  *      routine must also start up the camera-handling thread to take
  *      care of it.
  *
@@ -2907,18 +2912,18 @@ int netcam_start(struct context *cnt)
     if (retval < 0)
         return -1;
 
-    /*
-     * We expect that, at this point, we should be positioned to read
-     * the first image available from the camera (directly after the
-     * applicable header).  We want to decode the image in order to get
-     * the dimensions (width and height).  If successful, we will use
-     * these to set the required image buffer(s) in our netcam_struct.
-     */
-    if ((retval = netcam->get_image(netcam)) != 0) {
-        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Failed trying to "
-                   "read first image - retval:%d", retval);
-        return -1;
-    }
+	/*
+	 * We expect that, at this point, we should be positioned to read
+	 * the first image available from the camera (directly after the
+	 * applicable header).  We want to decode the image in order to get
+	 * the dimensions (width and height).  If successful, we will use
+	 * these to set the required image buffer(s) in our netcam_struct.
+	 */
+	if ((retval = netcam->get_image(netcam)) != 0) {
+		MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Failed trying to "
+				   "read first image - retval:%d", retval);
+		return -1;
+	}
 
 #ifdef have_av_get_media_type_string
     if (netcam->caps.streaming != NCS_RTSP) {
@@ -2938,28 +2943,29 @@ int netcam_start(struct context *cnt)
         netcam->JFIF_marker = 0;
         netcam_get_dimensions(netcam);
 
-        /*
-        * Motion currently requires that image height and width is a
-        * multiple of 16. So we check for this.
-        */
-        if (netcam->width % 8) {
-            MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image width (%d)"
-                       " is not modulo 8", netcam->width);
-            return -3;
-        }
+		/*
+		 * Motion currently requires that image height and width is a
+		 * multiple of 16. So we check for this.
+		 */
+		if (netcam->width % 16) {
+			MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image width (%d)"
+					   " is not modulo 16", netcam->width);
+			return -3;
+		}
 
-        if (netcam->height % 8) {
-            MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image height (%d)"
-                       " is not modulo 8", netcam->height);
-            return -3;
-        }
-#ifdef have_av_get_media_type_string        
-    } else {
-        // not jpeg, get the dimensions
-        netcam->width = netcam->rtsp->codec_context->width;
-        netcam->height = netcam->rtsp->codec_context->height;
-    }
+		if (netcam->height % 16) {
+			MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image height (%d)"
+					   " is not modulo 16", netcam->height);
+			return -3;
+		}
+#ifdef have_av_get_media_type_string  
+	} else {
+		// not jpeg, get the dimensions
+		netcam->width = netcam->rtsp->codec_context->width;
+		netcam->height = netcam->rtsp->codec_context->height;
+	}
 #endif
+
 
     /* Fill in camera details into context structure. */
     cnt->imgs.width = netcam->width;

@@ -254,7 +254,7 @@ static void put_jpeg_exif(j_compress_ptr cinfo,
 	    description = malloc(PATH_MAX);
 	    mystrftime(cnt, description, PATH_MAX-1,
 		        cnt->conf.exif_text,
-		        timestamp, NULL, 0);
+		       timestamp, NULL, 0, 0);
     } else {
 	    description = NULL;
     }
@@ -398,6 +398,131 @@ static void put_jpeg_exif(j_compress_ptr cinfo,
     free(marker);
 }
 
+#if defined(HAVE_FFMPEG) && 0
+/**
+ * put_jpeg_yuv420p_memory
+ *      Converts an input image in the YUV420P format into a jpeg image and puts
+ *      it in a memory buffer.
+ * Inputs:
+ * - image_size is the size of the input image buffer.
+ * - input_image is the image in YUV420P format.
+ * - width and height are the dimensions of the image
+ * - quality is the jpeg encoding quality 0-100%
+ *
+ * Output:
+ * - dest_image is a pointer to the jpeg image buffer
+ *
+ * Returns buffer size of jpeg image
+ */
+static int put_jpeg_yuv420p_memory(unsigned char *dest_image, int image_size,
+				   unsigned char *input_image, int width, int height, int quality,
+				   struct context *cnt, struct tm *tm, struct coord *box)
+
+{
+	AVCodec *codec;
+	AVCodecContext *c= NULL;
+	int i, out_size, size, x, y, outbuf_size;
+	FILE *f;
+	AVFrame *picture;
+	uint8_t *outbuf, *picture_buf;
+
+	00209     printf("Video encoding\n");
+
+	/* find the jpeg encoder */
+	codec = avcodec_find_encoder(CODEC_ID_MJPEG);
+	if (!codec) {
+	    fprintf(stderr, "codec not found\n");
+	    exit(1);
+	}
+
+	c= avcodec_alloc_context();
+	picture= avcodec_alloc_frame();
+
+	00221     /* put sample parameters */
+	00222     c->bit_rate = 400000;
+	00223     /* resolution must be a multiple of two */
+	00224     c->width = 352;
+	00225     c->height = 288;
+	00226     /* frames per second */
+	00227     c->time_base= (AVRational){1,25};
+	00228     c->gop_size = 10; /* emit one intra frame every ten frames */
+	00229     c->max_b_frames=1;
+	00230     c->pix_fmt = PIX_FMT_YUV420P;
+	00231
+	00232     /* open it */
+	00233     if (avcodec_open(c, codec) < 0) {
+	00234         fprintf(stderr, "could not open codec\n");
+	00235         exit(1);
+	00236     }
+	00237
+	00238     f = fopen(filename, "wb");
+	00239     if (!f) {
+	00240         fprintf(stderr, "could not open %s\n", filename);
+	00241         exit(1);
+	00242     }
+	00243
+	00244     /* alloc image and output buffer */
+	00245     outbuf_size = 100000;
+	00246     outbuf = malloc(outbuf_size);
+	00247     size = c->width * c->height;
+	00248     picture_buf = malloc((size * 3) / 2); /* size for YUV 420 */
+	00249
+	00250     picture->data[0] = picture_buf;
+	00251     picture->data[1] = picture->data[0] + size;
+	00252     picture->data[2] = picture->data[1] + size / 4;
+	00253     picture->linesize[0] = c->width;
+	00254     picture->linesize[1] = c->width / 2;
+	00255     picture->linesize[2] = c->width / 2;
+	00256
+	00257     /* encode 1 second of video */
+	00258     for(i=0;i<25;i++) {
+	00259         fflush(stdout);
+	00260         /* prepare a dummy image */
+	00261         /* Y */
+	00262         for(y=0;y<c->height;y++) {
+	00263             for(x=0;x<c->width;x++) {
+	00264                 picture->data[0][y * picture->linesize[0] + x] = x + y + i * 3;
+	00265             }
+	00266         }
+	00267
+	00268         /* Cb and Cr */
+	00269         for(y=0;y<c->height/2;y++) {
+	00270             for(x=0;x<c->width/2;x++) {
+	00271                 picture->data[1][y * picture->linesize[1] + x] = 128 + y + i * 2;
+	00272                 picture->data[2][y * picture->linesize[2] + x] = 64 + x + i * 5;
+	00273             }
+	00274         }
+	00275
+	00276         /* encode the image */
+	00277         out_size = avcodec_encode_video(c, outbuf, outbuf_size, picture);
+	00278         printf("encoding frame %3d (size=%5d)\n", i, out_size);
+	00279         fwrite(outbuf, 1, out_size, f);
+	00280     }
+	00281
+	00282     /* get the delayed frames */
+	00283     for(; out_size; i++) {
+	00284         fflush(stdout);
+	00285
+	00286         out_size = avcodec_encode_video(c, outbuf, outbuf_size, NULL);
+	00287         printf("write frame %3d (size=%5d)\n", i, out_size);
+	00288         fwrite(outbuf, 1, out_size, f);
+	00289     }
+	/* add sequence end code to have a real mpeg file */
+	00292     outbuf[0] = 0x00;
+	00293     outbuf[1] = 0x00;
+	00294     outbuf[2] = 0x01;
+	00295     outbuf[3] = 0xb7;
+	00296     fwrite(outbuf, 1, 4, f);
+	00297     fclose(f);
+	00298     free(picture_buf);
+	00299     free(outbuf);
+	00300
+	00301     avcodec_close(c);
+	00302     av_free(c);
+	00303     av_free(picture);
+	00304     printf("\n");
+}
+#else
 /**
  * put_jpeg_yuv420p_memory
  *      Converts an input image in the YUV420P format into a jpeg image and puts
@@ -432,9 +557,11 @@ static int put_jpeg_yuv420p_memory(unsigned char *dest_image, int image_size,
 
     cinfo.err = jpeg_std_error(&jerr);  // Errors get written to stderr
 
+    int jpeg_height = height - (height % 16);
+
     jpeg_create_compress(&cinfo);
     cinfo.image_width = width;
-    cinfo.image_height = height;
+    cinfo.image_height = jpeg_height;
     cinfo.input_components = 3;
     jpeg_set_defaults(&cinfo);
 
@@ -460,16 +587,16 @@ static int put_jpeg_yuv420p_memory(unsigned char *dest_image, int image_size,
 
     put_jpeg_exif(&cinfo, cnt, tm, box);
 
-    for (j = 0; j < height; j += 16) {
-        for (i = 0; i < 16; i++) {
-            y[i] = input_image + width * (i + j);
+    for (j = 0; j < jpeg_height; j += 16) {
+		for (i = 0; i < 16; i++) {
+			y[i] = input_image + width * (i + j);
 
-            if (i % 2 == 0) {
-                cb[i / 2] = input_image + width * height + width / 2 * ((i + j) /2);
-                cr[i / 2] = input_image + width * height + width * height / 4 + width / 2 * ((i + j) / 2);
-            }
-        }
-        jpeg_write_raw_data(&cinfo, data, 16);
+			if (i % 2 == 0) {
+				cb[i / 2] = input_image + width * height + width / 2 * ((i + j) /2);
+				cr[i / 2] = input_image + width * height + width * height / 4 + width / 2 * ((i + j) / 2);
+			}
+		}
+		jpeg_write_raw_data(&cinfo, data, 16);
     }
 
     jpeg_finish_compress(&cinfo);
@@ -478,6 +605,7 @@ static int put_jpeg_yuv420p_memory(unsigned char *dest_image, int image_size,
 
     return jpeg_image_size;
 }
+#endif
 
 /**
  * put_jpeg_grey_memory
@@ -1114,7 +1242,7 @@ void preview_save(struct context *cnt)
             else
                 imagepath = (char *)DEF_IMAGEPATH;
 
-            mystrftime(cnt, filename, sizeof(filename), imagepath, &cnt->imgs.preview_image.timestamp_tm, NULL, 0);
+            mystrftime(cnt, filename, sizeof(filename), imagepath, &cnt->imgs.preview_image.timestamp_tm, NULL, 0, 0);
             snprintf(previewname, PATH_MAX, "%s/%s.%s", cnt->conf.filepath, filename, imageext(cnt));
 
             put_picture(cnt, previewname, cnt->imgs.preview_image.image, FTYPE_IMAGE);

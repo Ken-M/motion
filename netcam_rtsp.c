@@ -2,11 +2,44 @@
 #include "netcam_rtsp.h"
 #include "motion.h"
 
-#ifdef have_av_get_media_type_string
-
 /****************************************************
  * Duplicated static functions - FIXME
  ****************************************************/
+
+/**
+ * netcam_url_free
+ *
+ *      General cleanup of the URL structure, called from netcam_cleanup.
+ *
+ * Parameters:
+ *
+ *      parse_url       Structure containing the parsed data.
+ *
+ * Returns:             Nothing
+ *
+ */
+static void netcam_url_free(struct url_t *parse_url)
+{
+    if (parse_url->service) {
+        free(parse_url->service);
+        parse_url->service = NULL;
+    }
+
+    if (parse_url->userpass) {
+        free(parse_url->userpass);
+        parse_url->userpass = NULL;
+    }
+
+    if (parse_url->host) {
+        free(parse_url->host);
+        parse_url->host = NULL;
+    }
+
+    if (parse_url->path) {
+        free(parse_url->path);
+        parse_url->path = NULL;
+    }
+}
 
 /**
  * netcam_check_buffsize
@@ -120,7 +153,7 @@ static int open_codec_context(int *stream_idx, AVFormatContext *fmt_ctx, enum AV
 * Returns:     Pointer to the newly-created structure, NULL if error.
 *
 */
-struct rtsp_context *rtsp_new_context(void)
+static struct rtsp_context *rtsp_new_context(void)
 {
   struct rtsp_context *ret;
   
@@ -169,26 +202,17 @@ static void rtsp_free_context(struct rtsp_context *ctxt)
   free(ctxt);
 }
 
-int rtsp_connect(netcam_context_ptr netcam)
+static int rtsp_connect(netcam_context_ptr netcam)
 {
-  if (netcam->rtsp == NULL) {
-    netcam->rtsp = rtsp_new_context();
-
-    if (netcam->rtsp == NULL) {
-      MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to create context(%s)", netcam->rtsp->path);
-      return -1;
-    }
-  }
-
   // open the network connection
   AVDictionary *opts = 0;
-  av_dict_set(&opts, "rtsp_transport", "tcp", 0);
+  if (netcam->cnt->conf.rtsp_uses_tcp) {
+    av_dict_set(&opts, "rtsp_transport", "tcp", 0);
+  }
 
   int ret = avformat_open_input(&netcam->rtsp->format_context, netcam->rtsp->path, NULL, &opts);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open input(%s): %d - %s", netcam->rtsp->path, ret, av_err2str(ret));
-    rtsp_free_context(netcam->rtsp);
-    netcam->rtsp = NULL;
     return -1;
   }
 
@@ -196,16 +220,12 @@ int rtsp_connect(netcam_context_ptr netcam)
   ret = avformat_find_stream_info(netcam->rtsp->format_context, NULL);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to find stream info: %d", ret);
-    rtsp_free_context(netcam->rtsp);
-    netcam->rtsp = NULL;
     return -1;
   }
 
   ret = open_codec_context(&netcam->rtsp->video_stream_index, netcam->rtsp->format_context, AVMEDIA_TYPE_VIDEO);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open codec context: %d", ret);
-    rtsp_free_context(netcam->rtsp);
-    netcam->rtsp = NULL;
     return -1;
   }
   
@@ -217,14 +237,8 @@ int rtsp_connect(netcam_context_ptr netcam)
   return 0;
 }
 
-int netcam_read_rtsp_image(netcam_context_ptr netcam)
+static int netcam_read_rtsp_image(netcam_context_ptr netcam)
 {
-  if (netcam->rtsp == NULL) {
-    if (rtsp_connect(netcam) < 0) {
-      return -1;
-    }
-  }
-
   AVCodecContext *cc = netcam->rtsp->codec_context;
   AVFormatContext *fc = netcam->rtsp->format_context;
   netcam_buff_ptr buffer;
@@ -249,10 +263,21 @@ int netcam_read_rtsp_image(netcam_context_ptr netcam)
 
     if(packet.stream_index != netcam->rtsp->video_stream_index) {
       // not our packet, skip
+      av_free_packet(&packet);
+      av_init_packet(&packet);
+      packet.data = NULL;
+      packet.size = 0;
+
       continue;
     }
 
     size_decoded = decode_packet(&packet, buffer, frame, cc);
+    if (size_decoded == 0) {
+      av_free_packet(&packet);
+      av_init_packet(&packet);
+      packet.data = NULL;
+      packet.size = 0;
+    }
   }
 
   if (size_decoded == 0) {
@@ -320,6 +345,72 @@ int netcam_read_rtsp_image(netcam_context_ptr netcam)
   return 0;
 }
 
+int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url)
+{
+  struct context *cnt = netcam->cnt;
+  const char *ptr;
+  int ret;
+  
+  netcam->caps.streaming = NCS_RTSP;
+  netcam->rtsp = rtsp_new_context();
+  if (netcam->rtsp == NULL) {
+    MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: unable to create rtsp context");
+    return -1;
+  }
+  
+  /*
+   * Allocate space for a working string to contain the path.
+   * The extra 5 is for "://", ":" and string terminator.
+   */
+  
+  // force port to a sane value
+  if (netcam->connect_port > 65536) {
+    netcam->connect_port = 65536;
+  } else if (netcam->connect_port < 0) {
+    netcam->connect_port = 0;
+  }
+  ptr = mymalloc(strlen(url->service) + strlen(netcam->connect_host)
+		 + 5 + strlen(url->path) + 5);
+  sprintf((char *)ptr, "%s://%s:%d%s", url->service,
+	  netcam->connect_host, netcam->connect_port, url->path);
+  
+  netcam->rtsp->path = (char *)ptr;
+  
+  if (cnt->conf.netcam_userpass != NULL) {
+    ptr = cnt->conf.netcam_userpass;
+  } else {
+    ptr = url->userpass;  /* Don't set this one NULL, gets freed. */
+  }
+  
+  if (ptr != NULL) {
+    char *cptr;
+    
+    if ((cptr = strchr(ptr, ':')) == NULL) {
+      netcam->rtsp->user = mystrdup(ptr);
+    } else {
+      netcam->rtsp->user = mymalloc((cptr - ptr) + 2); // +2 for string terminator
+      memcpy(netcam->rtsp->user, ptr,(cptr - ptr));
+      netcam->rtsp->pass = mystrdup(cptr + 1);
+    }
+  }
+
+  netcam_url_free(url);
+
+  /*
+   * The RTSP context should be all ready to attempt a connection with
+   * the server, so we try ....
+   */
+  ret = rtsp_connect(netcam);
+  if (ret < 0) {
+      rtsp_free_context(netcam->rtsp);
+      netcam->rtsp = NULL;
+      return ret;
+  }
+
+  netcam->get_image = netcam_read_rtsp_image;
+
+  return 0;
+}
 
 void netcam_shutdown_rtsp(netcam_context_ptr netcam)
 {
@@ -329,4 +420,20 @@ void netcam_shutdown_rtsp(netcam_context_ptr netcam)
   }
 }
 
-#endif
+void netcam_reconnect_rtsp(netcam_context_ptr netcam)
+{
+  if (!netcam->rtsp) {
+    /* incorrect calling sequence */
+    return;
+  }
+
+  if (netcam->rtsp->format_context != NULL) {
+    avformat_close_input(&netcam->rtsp->format_context);
+  }
+
+  if (netcam->rtsp->codec_context != NULL) {
+    avcodec_close(netcam->rtsp->codec_context);
+  }
+
+  rtsp_connect(netcam);
+}

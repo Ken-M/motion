@@ -22,6 +22,12 @@
 #include <sys/types.h>
 #include <regex.h>
 
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavformat/avio.h>
+#include <libavutil/imgutils.h>
+
+
 /*
  * We are aiming to get the gcc compilation of motion practically "warning
  * free", when using all the possible warning switches.  The following macro
@@ -201,7 +207,7 @@ typedef struct netcam_context {
                                    context for FILE connection */
 
     struct rtsp_context *rtsp;  /* this structure contains the
-                                   context for RTSP connection */                                                                       
+                                   context for RTSP connection */
 
     int (*get_image)(netcam_context_ptr);
                                 /* Function to fetch the image from

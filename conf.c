@@ -123,7 +123,8 @@ struct config conf_template = {
     sql_log_snapshot:               1,
     sql_log_movie:                  0,
     sql_log_timelapse:              0,
-    sql_query:                      DEF_SQL_QUERY,
+    sql_event_start_query:          DEF_SQL_START_QUERY,
+    sql_file_query:                 DEF_SQL_FILE_QUERY,
     database_type:                  NULL,
     database_dbname:                NULL,
     database_host:                  "localhost",
@@ -146,6 +147,7 @@ struct config conf_template = {
     netcam_keepalive:               "off",
     netcam_proxy:                   NULL,
     netcam_tolerant_check:          0,
+    rtsp_uses_tcp:                  1,
     text_changes:                   0,
     text_left:                      NULL,
     text_right:                     DEF_TIMESTAMP,
@@ -407,6 +409,15 @@ config_param config_params[] = {
     "# Default: off",
     0,
     CONF_OFFSET(netcam_tolerant_check),
+    copy_bool,
+    print_bool
+    },
+    {
+    "rtsp_uses_tcp",
+    "# RTSP connection uses TCP to communicate to the camera. Can prevent image corruption.\n"
+    "# Default: on",
+    1,
+    CONF_OFFSET(rtsp_uses_tcp),
     copy_bool,
     print_bool
     },
@@ -1409,7 +1420,31 @@ config_param config_params[] = {
     print_bool
     },
     {
-    "sql_query",
+    "sql_event_start_query",
+    "# SQL query string that is sent to the database at the start of an event\n"
+    "# This allows for creating a global event id for an event that files will\n"
+    "# use when they are created\n"
+    "# Use same conversion specifiers has for text features\n"
+    "# Additional special conversion specifiers are\n"
+    "# %n = the number representing the file_type\n"
+    "# %f = filename with full path\n"
+    "# Create tables :\n"
+    "##\n"
+    "# Mysql\n"
+    "# CREATE TABLE security_events (event_id int primary key auto_increment, camera int, event_time_stamp timestamp(14));\n"
+    "#\n"
+    "# Postgresql\n"
+    "# CREATE TABLE security (camera int, filename char(80) not null, frame int, file_type int, time_stamp timestamp without time zone, event_time_stamp timestamp without time zone);\n"
+    "#\n"
+    "# Default value:\n"
+    "# insert into security_events (camera, event_time_stamp) values('%t', '%Y-%m-%d %T')",
+    0,
+    CONF_OFFSET(sql_event_start_query),
+    copy_string,
+    print_string
+    },
+    {
+    "sql_file_query",
     "# SQL query string that is sent to the database\n"
     "# Use same conversion specifiers has for text features\n"
     "# Additional special conversion specifiers are\n"
@@ -1418,15 +1453,15 @@ config_param config_params[] = {
     "# Create tables :\n"
     "##\n"
     "# Mysql\n"
-    "# CREATE TABLE security (camera int, filename char(80) not null, frame int, file_type int, time_stamp timestamp(14), event_time_stamp timestamp(14));\n"
+    "# CREATE TABLE security_file (file_id int primary key auto_increment, event_id int foreign key, filename text not null, frame int, file_type int, time_stamp timestamp(14));\n"
     "#\n"
     "# Postgresql\n"
     "# CREATE TABLE security (camera int, filename char(80) not null, frame int, file_type int, time_stamp timestamp without time zone, event_time_stamp timestamp without time zone);\n"
     "#\n"
     "# Default value:\n"
-    "# insert into security(camera, filename, frame, file_type, time_stamp, text_event) values('%t', '%f', '%q', '%n', '%Y-%m-%d %T', '%C')",
+    "# insert into security_file(camera, event_id, filename, frame, file_type, time_stamp) values('%t', '%n', '%f', '%q', '%n', '%Y-%m-%d %T')",
     0,
-    CONF_OFFSET(sql_query),
+    CONF_OFFSET(sql_file_query),
     copy_string,
     print_string
     },
@@ -1554,8 +1589,10 @@ static void conf_cmdline(struct context *cnt, int thread)
     while ((c = getopt(conf->argc, conf->argv, "c:d:hmns?p:k:l:")) != EOF)
         switch (c) {
         case 'c':
-            if (thread == -1)
-                strcpy(cnt->conf_filename, optarg);
+            if (thread == -1) {
+                strncpy(cnt->conf_filename, optarg, sizeof(cnt->conf_filename) - 1);
+                cnt->conf_filename[sizeof(cnt->conf_filename) - 1] = '\0';
+            }
             break;
         case 'n':
             cnt->daemon = 0;
@@ -1569,17 +1606,23 @@ static void conf_cmdline(struct context *cnt, int thread)
                 cnt->log_level = (unsigned int)atoi(optarg);
             break;
         case 'k':
-            if (thread == -1)
-                strcpy(cnt->log_type_str, optarg);
-            break;
+	  if (thread == -1) {
+	    strncpy(cnt->log_type_str, optarg, sizeof(cnt->log_type_str) - 1);
+	    cnt->log_type_str[sizeof(cnt->log_type_str) - 1] = '\0';
+	  }
+	  break;
         case 'p':
-            if (thread == -1)
-                strcpy(cnt->pid_file, optarg);
-            break;
+	  if (thread == -1) {
+	    strncpy(cnt->pid_file, optarg, sizeof(cnt->pid_file) - 1);
+	    cnt->pid_file[sizeof(cnt->pid_file) - 1] = '\0';
+	  }
+	  break;
         case 'l':
-            if (thread == -1)
-                strcpy(cnt->log_file, optarg);
-            break;
+	  if (thread == -1) {
+	    strncpy(cnt->log_file, optarg, sizeof(cnt->log_file) - 1);
+	    cnt->log_file[sizeof(cnt->log_file) - 1] = '\0';
+	  }
+	  break;
         case 'm':
             cnt->pause = 1;
             break;    
@@ -1868,8 +1911,9 @@ struct context **conf_load(struct context **cnt)
     conf_cmdline(cnt[0], -1);
 
     if (cnt[0]->conf_filename[0]) { /* User has supplied filename on Command-line. */
-        strcpy(filename, cnt[0]->conf_filename);
-        fp = fopen (filename, "r");
+      strncpy(filename, cnt[0]->conf_filename, PATH_MAX-1);
+      filename[PATH_MAX-1] = '\0';
+      fp = fopen (filename, "r");
     }
 
     if (!fp) {  /* Command-line didn't work, try current dir. */
@@ -1905,11 +1949,12 @@ struct context **conf_load(struct context **cnt)
 
     /* Now we process the motion.conf config file and close it. */
     if (fp) {
-        strcpy(cnt[0]->conf_filename, filename);
-        MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Processing thread 0 - config file %s",
-                   filename);
-        cnt = conf_process(cnt, fp);
-        myfclose(fp);
+      strncpy(cnt[0]->conf_filename, filename, sizeof(cnt[0]->conf_filename) - 1);
+      cnt[0]->conf_filename[sizeof(cnt[0]->conf_filename) - 1] = '\0';
+      MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Processing thread 0 - config file %s",
+		 filename);
+      cnt = conf_process(cnt, fp);
+      myfclose(fp);
     } else {
         MOTION_LOG(CRT, TYPE_ALL, NO_ERRNO, "%s: Not config file to process using default values");
     }

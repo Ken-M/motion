@@ -650,6 +650,41 @@ quiet on
 # Log to the database when creating timelapse movies file (default: off)
 ; sql_log_timelapse off
 
+# SQL query string that is sent to the database at the start of an event
+# This allows for creating a global event id for an event that files will
+# use when they are created
+# Use same conversion specifiers has for text features
+# Additional special conversion specifiers are
+# %n = the number representing the file_type
+# %f = filename with full path
+# Create tables :
+##
+# Mysql
+# CREATE TABLE security_events (event_id int primary key auto_increment, camera int, event_time_stamp timestamp(14));
+#
+# Postgresql
+# CREATE TABLE security (camera int, filename char(80) not null, frame int, file_type int, time_stamp timestamp without time zone, event_time_stamp timestamp without time zone);
+#
+# Default value:
+# insert into security_events (camera, event_time_stamp) values('%t', '%Y-%m-%d %T');
+
+# SQL query string that is sent to the database
+# Use same conversion specifiers has for text features
+# Additional special conversion specifiers are
+# %n = the number representing the file_type
+# %f = filename with full path
+# %e = event id associated with this file
+# Create tables :
+##
+# Mysql
+# CREATE TABLE security_file (file_id int primary key auto_increment, event_id int foreign key, filename text not null, frame int, file_type int, time_stamp timestamp(14));
+#
+# Postgresql
+# CREATE TABLE security (camera int, filename char(80) not null, frame int, file_type int, time_stamp timestamp without time zone, event_time_stamp timestamp without time zone);
+#
+# Default value:
+# insert into security_file(camera, event_id, filename, frame, file_type, time_stamp) values('%t', '%n', '%f', '%q', '%n', '%Y-%m-%d %T');
+
 # SQL query string that is sent to the database
 # Use same conversion specifiers has for text features
 # Additional special conversion specifiers are

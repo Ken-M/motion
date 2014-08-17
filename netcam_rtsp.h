@@ -1,10 +1,4 @@
 #include "netcam.h"
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavformat/avio.h>
-#include <libavutil/avutil.h>
-#include <libavutil/imgutils.h>
-
 
 struct rtsp_context {
 	AVFormatContext*      format_context;
@@ -15,8 +9,6 @@ struct rtsp_context {
 	char*                 pass;
 };
 
-//int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url);
-struct rtsp_context *rtsp_new_context(void);
+int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url);
 void netcam_shutdown_rtsp(netcam_context_ptr netcam);
-int rtsp_connect(netcam_context_ptr netcam);
-int netcam_read_rtsp_image(netcam_context_ptr netcam);
+void netcam_reconnect_rtsp(netcam_context_ptr netcam);

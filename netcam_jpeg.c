@@ -499,17 +499,17 @@ int netcam_proc_jpeg(netcam_context_ptr netcam, unsigned char *image)
  */
 void netcam_get_dimensions(netcam_context_ptr netcam)
 {
-    struct jpeg_decompress_struct cinfo; /* Decompression control struct. */
-    int ret;
+	struct jpeg_decompress_struct cinfo; /* Decompression control struct. */
+	int ret;
 
-    ret = netcam_init_jpeg(netcam, &cinfo);
+	ret = netcam_init_jpeg(netcam, &cinfo);
 
-    netcam->width = cinfo.output_width;
-    netcam->height = cinfo.output_height;
-    netcam->JFIF_marker = cinfo.saw_JFIF_marker;
+	netcam->width = cinfo.output_width;
+	netcam->height = cinfo.output_height;
+	netcam->JFIF_marker = cinfo.saw_JFIF_marker;
 
-    jpeg_destroy_decompress(&cinfo);
+	jpeg_destroy_decompress(&cinfo);
 
-    MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: JFIF_marker %s PRESENT ret %d",
-               netcam->JFIF_marker ? "IS" : "NOT", ret);
+	MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: JFIF_marker %s PRESENT ret %d",
+			   netcam->JFIF_marker ? "IS" : "NOT", ret);
 }

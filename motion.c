@@ -305,9 +305,9 @@ static void sig_handler(int signo)
         if (cnt_list) {
             i = -1;
             while (cnt_list[++i]) {
-                if (cnt_list[i]->conf.snapshot_interval) 
+                if (cnt_list[i]->conf.snapshot_interval) {
                     cnt_list[i]->snapshot = 1;
-                
+                }
             }
         }
         break;
@@ -459,7 +459,7 @@ static void motion_detected(struct context *cnt, int dev, struct image_data *img
              * on_motion_detected_commend so it must be done now.
              */
             mystrftime(cnt, cnt->text_event_string, sizeof(cnt->text_event_string),
-                       cnt->conf.text_event, cnt->eventtime_tm, NULL, 0);
+                       cnt->conf.text_event, cnt->eventtime_tm, NULL, 0, 0);
 
             /* EVENT_FIRSTMOTION triggers on_event_start_command and event_ffmpeg_newfile */
             event(cnt, EVENT_FIRSTMOTION, img->image, NULL, NULL, &img->timestamp_tm);
@@ -529,7 +529,7 @@ static void process_image_ring(struct context *cnt, unsigned int max_images)
         if ((cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & (IMAGE_SAVE | IMAGE_SAVED)) != IMAGE_SAVE)
             break;
 
-        /* Set inte global cotext that we are working with this image */
+        /* Set inte global context that we are working with this image */
         cnt->current_image = &cnt->imgs.image_ring[cnt->imgs.image_ring_out];
 
         if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].shot < cnt->conf.frame_limit) {
@@ -549,7 +549,7 @@ static void process_image_ring(struct context *cnt, unsigned int max_images)
                     t = "Other";
 
                 mystrftime(cnt, tmp, sizeof(tmp), "%H%M%S-%q", 
-                           &cnt->imgs.image_ring[cnt->imgs.image_ring_out].timestamp_tm, NULL, 0);
+                           &cnt->imgs.image_ring[cnt->imgs.image_ring_out].timestamp_tm, NULL, 0, 0);
                 draw_text(cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, 10, 20, 
                           cnt->imgs.width, tmp, cnt->conf.text_double);
                 draw_text(cnt->imgs.image_ring[cnt->imgs.image_ring_out].image, 10, 30, 
@@ -614,7 +614,7 @@ static void process_image_ring(struct context *cnt, unsigned int max_images)
         /* Mark the image as saved */
         cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags |= IMAGE_SAVED;
 
-        /* Store it as a preview image, only if it have motion */
+        /* Store it as a preview image, only if it has motion */
         if (cnt->imgs.image_ring[cnt->imgs.image_ring_out].flags & IMAGE_MOTION) {
             /* Check for most significant preview-shot when output_pictures=best */
             if (cnt->new_img & NEWIMG_BEST) {
@@ -828,6 +828,7 @@ static int motion_init(struct context *cnt)
         if ((!strcmp(cnt->conf.database_type, "mysql")) && (cnt->conf.database_dbname)) { 
             // close database to be sure that we are not leaking
             mysql_close(cnt->database);
+	    cnt->current_event_id = 0;
 
             cnt->database = (MYSQL *) mymalloc(sizeof(MYSQL));
             mysql_init(cnt->database);
@@ -1052,6 +1053,7 @@ static void motion_cleanup(struct context *cnt)
 #ifdef HAVE_MYSQL
         if ( (!strcmp(cnt->conf.database_type, "mysql")) && (cnt->conf.database_dbname)) {    
             mysql_close(cnt->database); 
+	    cnt->current_event_id = 0;
         }
 #endif /* HAVE_MYSQL */
 
@@ -1183,7 +1185,7 @@ static void *motion_loop(void *arg)
     /***** MOTION LOOP - PREPARE FOR NEW FRAME SECTION *****/
         cnt->watchdog = WATCHDOG_TMO;
 
-        /* Get current time and preserver last time for frame interval calc. */
+        /* Get current time and preserve last time for frame interval calc. */
         timebefore = timenow;
         gettimeofday(&tv1, NULL);
         timenow = tv1.tv_usec + 1000000L * tv1.tv_sec;
@@ -1215,10 +1217,11 @@ static void *motion_loop(void *arg)
          * If pre_capture or minimum_motion_frames has been changed
          * via the http remote control we need to re-size the ring buffer
          */
-        frame_buffer_size = cnt->conf.pre_capture + cnt->conf.minimum_motion_frames;
+        frame_buffer_size = cnt->conf.pre_capture > 1 ? cnt->conf.pre_capture : 1;
 
-        if (cnt->imgs.image_ring_size != frame_buffer_size) 
+        if (cnt->imgs.image_ring_size != frame_buffer_size) {
             image_ring_resize(cnt, frame_buffer_size);
+	}
         
         /* Get time for current frame */
         cnt->currenttime = time(NULL);
@@ -1290,11 +1293,8 @@ static void *motion_loop(void *arg)
             } else if (cnt->current_image && old_image) {
                 /* not processing this frame: save some important values for next image */
                 cnt->current_image->diffs = old_image->diffs;
-                cnt->current_image->timestamp = old_image->timestamp;
-                cnt->current_image->timestamp_tm = old_image->timestamp_tm;
-                cnt->current_image->shot = old_image->shot;
                 cnt->current_image->cent_dist = old_image->cent_dist;
-                cnt->current_image->flags = old_image->flags;
+                cnt->current_image->flags = old_image->flags & IMAGE_FLAG_COPY_MASK;
                 cnt->current_image->location = old_image->location;
                 cnt->current_image->total_labels = old_image->total_labels;
             }
@@ -1463,7 +1463,7 @@ static void *motion_loop(void *arg)
 
                     localtime_r(&cnt->connectionlosttime, &tmptime);
                     memset(cnt->current_image->image, 0x80, cnt->imgs.size);
-                    mystrftime(cnt, tmpout, sizeof(tmpout), tmpin, &tmptime, NULL, 0);
+                    mystrftime(cnt, tmpout, sizeof(tmpout), tmpin, &tmptime, NULL, 0, 0);
                     draw_text(cnt->current_image->image, 10, 20 * text_size_factor, cnt->imgs.width,
                               tmpout, cnt->conf.text_double);
 
@@ -1725,7 +1725,7 @@ static void *motion_loop(void *arg)
             if (cnt->conf.text_left) {
                 char tmp[PATH_MAX];
                 mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_left, 
-                           &cnt->current_image->timestamp_tm, NULL, 0);
+                           &cnt->current_image->timestamp_tm, NULL, 0, 0);
                 draw_text(cnt->current_image->image, 10, cnt->imgs.height - 10 * text_size_factor, 
                           cnt->imgs.width, tmp, cnt->conf.text_double);
             }
@@ -1734,7 +1734,7 @@ static void *motion_loop(void *arg)
             if (cnt->conf.text_right) {
                 char tmp[PATH_MAX];
                 mystrftime(cnt, tmp, sizeof(tmp), cnt->conf.text_right, 
-                           &cnt->current_image->timestamp_tm, NULL, 0);
+                           &cnt->current_image->timestamp_tm, NULL, 0, 0);
                 draw_text(cnt->current_image->image, cnt->imgs.width - 10, 
                           cnt->imgs.height - 10 * text_size_factor,
                           cnt->imgs.width, tmp, cnt->conf.text_double);
@@ -1743,13 +1743,17 @@ static void *motion_loop(void *arg)
 
         /***** MOTION LOOP - ACTIONS AND EVENT CONTROL SECTION *****/
 
-            if (cnt->current_image->diffs > cnt->threshold) {
-                /* flag this image, it have motion */
-                cnt->current_image->flags |= IMAGE_MOTION;
-                cnt->lightswitch_framecounter++; /* micro lightswitch */
-            } else { 
-                cnt->lightswitch_framecounter = 0;
-            }    
+            if (cnt->process_thisframe) {
+		if (cnt->current_image->diffs > cnt->threshold) {
+		    /* flag this image, it have motion */
+		    cnt->current_image->flags |= IMAGE_MOTION;
+		    cnt->lightswitch_framecounter++; /* micro lightswitch */
+		    cnt->motion_frames++;
+		} else {
+		    cnt->lightswitch_framecounter = 0;
+		    cnt->motion_frames = 0;
+		}
+	    }
 
             /* 
              * If motion has been detected we take action and start saving
@@ -1780,22 +1784,7 @@ static void *motion_loop(void *arg)
                  * If so, ensure the motion is sustained if minimum_motion_frames
                  */
 
-                /* Count how many frames with motion there is in the last minimum_motion_frames in precap buffer */
-                int frame_count = 0;
-                int pos = cnt->imgs.image_ring_in;
-
-                for (i = 0; i < cnt->conf.minimum_motion_frames; i++) {
-                
-                    if (cnt->imgs.image_ring[pos].flags & IMAGE_MOTION)
-                        frame_count++;
-
-                    if (pos == 0) 
-                        pos = cnt->imgs.image_ring_size-1;
-                    else 
-                        pos--;
-                }
-
-                if (frame_count >= cnt->conf.minimum_motion_frames) {
+                if (cnt->motion_frames >= cnt->conf.minimum_motion_frames) {
 
                     cnt->current_image->flags |= (IMAGE_TRIGGER | IMAGE_SAVE);
                     cnt->detecting_motion = 1;
@@ -3117,7 +3106,7 @@ int myfclose(FILE* fh)
  * Returns: number of bytes written to the string s
  */
 size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *userformat,
-                  const struct tm *tm, const char *filename, int sqltype)
+                  const struct tm *tm, const char *filename, int sqltype, unsigned long long event_id)
 {
     char formatstring[PATH_MAX] = "";
     char tempstring[PATH_MAX] = "";
@@ -3200,6 +3189,14 @@ size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *us
                     ++pos_userformat;
                 break;
 
+            case 'w': // picture width
+                sprintf(tempstr, "%d", cnt->imgs.width);
+                break;
+
+            case 'h': // picture height
+                sprintf(tempstr, "%d", cnt->imgs.height);
+                break;
+
             case 'f': // filename -- or %fps
                 if ((*(pos_userformat+1) == 'p') && (*(pos_userformat+2) == 's')) {
                     sprintf(tempstr, "%d", cnt->movie_fps);
@@ -3216,6 +3213,13 @@ size_t mystrftime(const struct context *cnt, char *s, size_t max, const char *us
             case 'n': // sqltype
                 if (sqltype)
                     sprintf(tempstr, "%d", sqltype);
+                else
+                    ++pos_userformat;
+                break;
+
+            case 'e': // event_id
+                if (event_id)
+                    sprintf(tempstr, "%llu", event_id);
                 else
                     ++pos_userformat;
                 break;
