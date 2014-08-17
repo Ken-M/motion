@@ -236,11 +236,13 @@ static int rtsp_connect(netcam_context_ptr netcam)
   // start up the feed
   av_read_play(netcam->rtsp->format_context);
 
+    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave rtsp_connect");
   return 0;
 }
 
 static int netcam_read_rtsp_image(netcam_context_ptr netcam)
 {
+    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "netcam_read_rtsp_image");
   AVCodecContext *cc = netcam->rtsp->codec_context;
   AVFormatContext *fc = netcam->rtsp->format_context;
   netcam_buff_ptr buffer;
@@ -343,12 +345,14 @@ static int netcam_read_rtsp_image(netcam_context_ptr netcam)
   pthread_cond_signal(&netcam->pic_ready);
   
   pthread_mutex_unlock(&netcam->mutex);
-  
+	
+    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave netcam_read_rtsp_image");
   return 0;
 }
 
 int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url)
 {
+    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "netcam_setup_rtsp");
   struct context *cnt = netcam->cnt;
   const char *ptr;
   int ret;
@@ -410,7 +414,7 @@ int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url)
   }
 
   netcam->get_image = netcam_read_rtsp_image;
-
+    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave netcam_setup_rtsp");
   return 0;
 }
 
