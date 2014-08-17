@@ -217,6 +217,7 @@ static int rtsp_connect(netcam_context_ptr netcam)
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open input(%s): %d - %s", netcam->rtsp->path, ret, av_err2str(ret));
     return -1;
   }
+	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave avformat_open_input");
 
   // fill out stream information
   ret = avformat_find_stream_info(netcam->rtsp->format_context, NULL);
@@ -224,17 +225,20 @@ static int rtsp_connect(netcam_context_ptr netcam)
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to find stream info: %d", ret);
     return -1;
   }
+	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave avformat_find_stream_info");
 
   ret = open_codec_context(&netcam->rtsp->video_stream_index, netcam->rtsp->format_context, AVMEDIA_TYPE_VIDEO);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open codec context: %d", ret);
     return -1;
   }
+	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave open_codec_context");
   
   netcam->rtsp->codec_context = netcam->rtsp->format_context->streams[netcam->rtsp->video_stream_index]->codec;
   
   // start up the feed
   av_read_play(netcam->rtsp->format_context);
+	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave av_read_play");
 
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave rtsp_connect");
   return 0;
