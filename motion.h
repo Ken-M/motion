@@ -148,7 +148,7 @@
                                        and then we show a grey image instead
                                      */
 
-#define WATCHDOG_TMO            60   /* 60 sec max motion_loop interval */
+#define WATCHDOG_TMO           300   /* 300 sec max motion_loop interval */
 #define WATCHDOG_OFF          -127   /* Turn off watchdog, used when we wants to quit a thread */
 
 #define CONNECTION_KO           "Lost connection"
