@@ -207,18 +207,14 @@ static int rtsp_connect(netcam_context_ptr netcam)
   // open the network connection
   AVDictionary *opts = 0;
   if (netcam->cnt->conf.rtsp_uses_tcp) {
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "rtsp tcp");
     av_dict_set(&opts, "rtsp_transport", "tcp", 0);
   }
 
-  av_dict_set(&opts, "allowed_media_types", "video", 0);
-	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "enter leave avformat_open_input");
   int ret = avformat_open_input(&netcam->rtsp->format_context, netcam->rtsp->path, NULL, &opts);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open input(%s): %d - %s", netcam->rtsp->path, ret, av_err2str(ret));
     return -1;
   }
-	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave avformat_open_input");
 
   // fill out stream information
   ret = avformat_find_stream_info(netcam->rtsp->format_context, NULL);
@@ -226,28 +222,23 @@ static int rtsp_connect(netcam_context_ptr netcam)
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to find stream info: %d", ret);
     return -1;
   }
-	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave avformat_find_stream_info");
 
   ret = open_codec_context(&netcam->rtsp->video_stream_index, netcam->rtsp->format_context, AVMEDIA_TYPE_VIDEO);
   if (ret < 0) {
     MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "%s: unable to open codec context: %d", ret);
     return -1;
   }
-	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave open_codec_context");
   
   netcam->rtsp->codec_context = netcam->rtsp->format_context->streams[netcam->rtsp->video_stream_index]->codec;
   
   // start up the feed
   av_read_play(netcam->rtsp->format_context);
-	MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave av_read_play");
 
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave rtsp_connect");
   return 0;
 }
 
 static int netcam_read_rtsp_image(netcam_context_ptr netcam)
 {
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "netcam_read_rtsp_image");
   AVCodecContext *cc = netcam->rtsp->codec_context;
   AVFormatContext *fc = netcam->rtsp->format_context;
   netcam_buff_ptr buffer;
@@ -350,14 +341,12 @@ static int netcam_read_rtsp_image(netcam_context_ptr netcam)
   pthread_cond_signal(&netcam->pic_ready);
   
   pthread_mutex_unlock(&netcam->mutex);
-	
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave netcam_read_rtsp_image");
+  
   return 0;
 }
 
 int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url)
 {
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "netcam_setup_rtsp");
   struct context *cnt = netcam->cnt;
   const char *ptr;
   int ret;
@@ -419,7 +408,7 @@ int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url)
   }
 
   netcam->get_image = netcam_read_rtsp_image;
-    MOTION_LOG(ALR, TYPE_NETCAM, NO_ERRNO, "leave netcam_setup_rtsp");
+
   return 0;
 }
 
