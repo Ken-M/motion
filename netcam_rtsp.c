@@ -263,8 +263,11 @@ static int netcam_read_rtsp_image(netcam_context_ptr netcam)
 
     if(packet.stream_index != netcam->rtsp->video_stream_index) {
       // not our packet, skip
-      av_free_packet(&packet);
-      av_init_packet(&packet);
+      //av_free_packet(&packet);
+      //av_init_packet(&packet);
+      if(packet.data!=NULL) {
+	  	av_free_packet(&packet);
+      }
       packet.data = NULL;
       packet.size = 0;
 
@@ -273,8 +276,12 @@ static int netcam_read_rtsp_image(netcam_context_ptr netcam)
 
     size_decoded = decode_packet(&packet, buffer, frame, cc);
     if (size_decoded == 0) {
-      av_free_packet(&packet);
-      av_init_packet(&packet);
+      //av_free_packet(&packet);
+      //av_init_packet(&packet);
+    	
+      if(packet.data!=NULL) {
+	  	av_free_packet(&packet);
+      }
       packet.data = NULL;
       packet.size = 0;
     }
