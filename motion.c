@@ -723,13 +723,13 @@ static int motion_init(struct context *cnt)
     memset(cnt->imgs.out, 0, cnt->imgs.size);
 
     /* contains the moving objects of ref. frame */
-    cnt->imgs.ref_dyn = mymalloc(cnt->imgs.motionsize * sizeof(cnt->imgs.ref_dyn));
+    cnt->imgs.ref_dyn = mymalloc(cnt->imgs.motionsize * sizeof(*cnt->imgs.ref_dyn));
     cnt->imgs.image_virgin = mymalloc(cnt->imgs.size);
     cnt->imgs.smartmask = mymalloc(cnt->imgs.motionsize);
     cnt->imgs.smartmask_final = mymalloc(cnt->imgs.motionsize);
-    cnt->imgs.smartmask_buffer = mymalloc(cnt->imgs.motionsize * sizeof(cnt->imgs.smartmask_buffer));
-    cnt->imgs.labels = mymalloc(cnt->imgs.motionsize * sizeof(cnt->imgs.labels));
-    cnt->imgs.labelsize = mymalloc((cnt->imgs.motionsize/2+1) * sizeof(cnt->imgs.labelsize));
+    cnt->imgs.smartmask_buffer = mymalloc(cnt->imgs.motionsize * sizeof(*cnt->imgs.smartmask_buffer));
+    cnt->imgs.labels = mymalloc(cnt->imgs.motionsize * sizeof(*cnt->imgs.labels));
+    cnt->imgs.labelsize = mymalloc((cnt->imgs.motionsize/2+1) * sizeof(*cnt->imgs.labelsize));
 
     /* Set output picture type */
     if (!strcmp(cnt->conf.picture_type, "ppm"))
@@ -918,7 +918,7 @@ static int motion_init(struct context *cnt)
     /* Always initialize smart_mask - someone could turn it on later... */
     memset(cnt->imgs.smartmask, 0, cnt->imgs.motionsize);
     memset(cnt->imgs.smartmask_final, 255, cnt->imgs.motionsize);
-    memset(cnt->imgs.smartmask_buffer, 0, cnt->imgs.motionsize*sizeof(cnt->imgs.smartmask_buffer));
+    memset(cnt->imgs.smartmask_buffer, 0, cnt->imgs.motionsize * sizeof(*cnt->imgs.smartmask_buffer));
 
     /* Set noise level */
     cnt->noise = cnt->conf.noise;
@@ -1294,7 +1294,7 @@ static void *motion_loop(void *arg)
                 /* not processing this frame: save some important values for next image */
                 cnt->current_image->diffs = old_image->diffs;
                 cnt->current_image->cent_dist = old_image->cent_dist;
-                cnt->current_image->flags = old_image->flags & IMAGE_FLAG_COPY_MASK;
+                cnt->current_image->flags = old_image->flags & (~IMAGE_SAVED);
                 cnt->current_image->location = old_image->location;
                 cnt->current_image->total_labels = old_image->total_labels;
             }
@@ -2703,8 +2703,12 @@ int main (int argc, char **argv)
             cnt_list[i]->threadnr = i ? i : 1;
 
             if (strcmp(cnt_list[i]->conf_filename, ""))
+            {
+                cnt_list[i]->conf_filename[sizeof(cnt_list[i]->conf_filename) - 1] = '\0';
+
                 MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread %d is from %s", 
                            cnt_list[i]->threadnr, cnt_list[i]->conf_filename);
+            }
 
             MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO, "%s: Thread %d is device: %s input %d", 
                        cnt_list[i]->threadnr, cnt_list[i]->conf.netcam_url ? 

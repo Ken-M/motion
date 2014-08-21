@@ -45,9 +45,7 @@
 #include <sys/socket.h>
 
 #include "netcam_ftp.h"
-#ifdef have_av_get_media_type_string
 #include "netcam_rtsp.h"
-#endif
 
 #define CONNECT_TIMEOUT        10     /* Timeout on remote connection attempt */
 #define READ_TIMEOUT            5     /* Default timeout on recv requests */
@@ -149,13 +147,9 @@ static void netcam_url_parse(struct url_t *parse_url, const char *text_url)
 {
     char *s;
     int i;
-#ifdef have_av_get_media_type_string    
-    const char *re = "(http|ftp|mjpg|rtsp)://(((.*):(.*))@)?"
+
+    const char *re = "(http|ftp|mjpg|mjpeg|rtsp)://(((.*):(.*))@)?"
                      "([^/:]|[-.a-z0-9]+)(:([0-9]+))?($|(/[^:]*))";
-#else
-    const char *re = "(http|ftp|mjpg)://(((.*):(.*))@)?"
-                     "([^/:]|[-.a-z0-9]+)(:([0-9]+))?($|(/[^:]*))";
-#endif                     
     regex_t pattbuf;
     regmatch_t matches[10];
 
@@ -211,10 +205,8 @@ static void netcam_url_parse(struct url_t *parse_url, const char *text_url)
             parse_url->port = 80;
         else if (!strcmp(parse_url->service, "ftp"))
             parse_url->port = 21;
-#ifdef have_av_get_media_type_string            
         else if (!strcmp(parse_url->service, "rtsp") && parse_url->port == 0)
         	parse_url->port = 554;
-#endif            
     }
 
     regfree(&pattbuf);
@@ -232,7 +224,7 @@ static void netcam_url_parse(struct url_t *parse_url, const char *text_url)
  * Returns:             Nothing
  *
  */
-static void netcam_url_free(struct url_t *parse_url)
+void netcam_url_free(struct url_t *parse_url)
 {
     if (parse_url->service) {
         free(parse_url->service);
@@ -1271,7 +1263,7 @@ static int netcam_read_html_jpeg(netcam_context_ptr netcam)
                      * module netcam_wget.c to do this job!
                      */
 
-                    MOTION_LOG(NTC, TYPE_NETCAM, NO_ERRNO,
+                    MOTION_LOG(DBG, TYPE_NETCAM, NO_ERRNO,
                                "%s: Potential split boundary - "
                                "%d chars flushed, %d "
                                "re-positioned", ix,
@@ -2018,22 +2010,42 @@ static void *netcam_handler_loop(void *arg)
                  */
             }
         }
-        if (netcam->get_image(netcam) < 0) {
-            MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Error getting jpeg image");
-            /* If FTP connection, attempt to re-connect to server. */
-            if (netcam->ftp) {
-                close(netcam->ftp->control_file_desc);
-                if (ftp_connect(netcam) < 0) 
-                    MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Trying to re-connect");
-                
+
+        if (netcam->caps.streaming == NCS_RTSP) {
+            if (netcam->rtsp->format_context == NULL) {      // We must have disconnected.  Try to reconnect
+                if (netcam->rtsp->status == RTSP_CONNECTED){
+                    MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Reconnecting with camera....");
+                }
+                netcam->rtsp->status = RTSP_RECONNECTING;
+                netcam_connect_rtsp(netcam);
+                continue;
+            } else {
+                // We think we are connected...
+                if (netcam->get_image(netcam) < 0) {
+                    if (netcam->rtsp->status == RTSP_CONNECTED){
+                        MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Bad image.  Reconnecting with camera....");
+                    }
+                    //Nope.  We are not or got bad image.  Reconnect
+                    netcam->rtsp->status = RTSP_RECONNECTING;
+                    netcam_connect_rtsp(netcam);
+                    continue;
+                }
             }
-            /* Attempt to re-connect to rtsp server */
-            else if (netcam->rtsp) {
-                MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Trying to re-connect to rtsp server");
-                netcam_reconnect_rtsp(netcam);
-            }
-            continue;
         }
+
+        if (netcam->caps.streaming != NCS_RTSP) {
+            if (netcam->get_image(netcam) < 0) {
+                MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Error getting jpeg image");
+                /* If FTP connection, attempt to re-connect to server. */
+                if (netcam->ftp) {
+                    close(netcam->ftp->control_file_desc);
+                    if (ftp_connect(netcam) < 0)
+                        MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Trying to re-connect");
+                }
+                continue;
+            }
+        }
+
         /*
          * FIXME
          * Need to check whether the image was received / decoded
@@ -2599,6 +2611,10 @@ void netcam_cleanup(netcam_context_ptr netcam, int init_retry_flag)
     if (netcam->response != NULL) 
         free(netcam->response);
 
+
+    if (netcam->caps.streaming == NCS_RTSP)
+        netcam_shutdown_rtsp(netcam);
+
     pthread_mutex_destroy(&netcam->mutex);
     pthread_cond_destroy(&netcam->cap_cond);
     pthread_cond_destroy(&netcam->pic_ready);
@@ -2650,7 +2666,13 @@ int netcam_next(struct context *cnt, unsigned char *image)
     }
 
     if (netcam->caps.streaming == NCS_RTSP) {
-    	memcpy(image, netcam->latest->ptr, netcam->latest->used);
+
+        if (netcam->rtsp->status == RTSP_RECONNECTING)
+            return NETCAM_NOTHING_NEW_ERROR;
+
+    	if (netcam_next_rtsp(image , netcam) < 0)
+            return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
+
     	return 0;
     } else {
 		/*
@@ -2831,6 +2853,12 @@ int netcam_start(struct context *cnt)
 
         strcpy(url.service, "http"); /* Put back a real URL service. */
         retval = netcam_setup_mjpg(netcam, &url);
+    } else if ((url.service) && (!strcmp(url.service, "mjpeg"))) {
+        MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: now calling"
+                   " netcam_setup_mjpeg()");
+
+        strcpy(url.service, "http"); /* Put back a real URL service. */
+        retval = netcam_setup_rtsp(netcam, &url);
     } else if ((url.service) && (!strcmp(url.service, "rtsp"))) {
         MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: now calling"
                    " netcam_setup_rtsp()");
@@ -2838,7 +2866,7 @@ int netcam_start(struct context *cnt)
         retval = netcam_setup_rtsp(netcam, &url);
     } else {
         MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Invalid netcam service '%s' - "
-                   "must be http, ftp, mjpg or file.", url.service);
+                   "must be http, ftp, mjpg, mjpeg or file.", url.service);
         netcam_url_free(&url);
         return -1;
     }
@@ -2846,21 +2874,23 @@ int netcam_start(struct context *cnt)
     if (retval < 0)
         return -1;
 
-	/*
-	 * We expect that, at this point, we should be positioned to read
-	 * the first image available from the camera (directly after the
-	 * applicable header).  We want to decode the image in order to get
-	 * the dimensions (width and height).  If successful, we will use
-	 * these to set the required image buffer(s) in our netcam_struct.
-	 */
-	if ((retval = netcam->get_image(netcam)) != 0) {
-		MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Failed trying to "
-				   "read first image - retval:%d", retval);
-		return -1;
-	}
-#ifdef have_av_get_media_type_string
+    /*
+     * We expect that, at this point, we should be positioned to read
+     * the first image available from the camera (directly after the
+     * applicable header).  We want to decode the image in order to get
+     * the dimensions (width and height).  If successful, we will use
+     * these to set the required image buffer(s) in our netcam_struct.
+     */
+    if ((retval = netcam->get_image(netcam)) != 0) {
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Failed trying to "
+                   "read first image - retval:%d", retval);
+        netcam->rtsp->status = RTSP_NOTCONNECTED;
+        return -1;
+    }
+
+
 	if (netcam->caps.streaming != NCS_RTSP) {
-#endif
+
 		/*
 		 * If an error occurs in the JPEG decompression which follows this,
 		 * jpeglib will return to the code within this 'if'.  If such an error
@@ -2875,29 +2905,23 @@ int netcam_start(struct context *cnt)
 		netcam->netcam_tolerant_check = cnt->conf.netcam_tolerant_check;
 		netcam->JFIF_marker = 0;
 		netcam_get_dimensions(netcam);
+    }
+    /*
+    * Motion currently requires that image height and width is a
+    * multiple of 16. So we check for this.
+    */
+    if (netcam->width % 8) {
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image width (%d)"
+                   " is not modulo 8", netcam->width);
+        return -3;
+    }
 
-		/*
-		 * Motion currently requires that image height and width is a
-		 * multiple of 16. So we check for this.
-		 */
-		if (netcam->width % 8) {
-			MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image width (%d)"
-					   " is not modulo 8", netcam->width);
-			return -3;
-		}
-
-		if (netcam->height % 8) {
-			MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image height (%d)"
-					   " is not modulo 8", netcam->height);
-			return -3;
-		}
-#ifdef have_av_get_media_type_string  
-	} else {
-		// not jpeg, get the dimensions
-		netcam->width = netcam->rtsp->codec_context->width;
-		netcam->height = netcam->rtsp->codec_context->height;
-	}
-#endif
+    if (netcam->height % 8) {
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: netcam image height (%d)"
+                   " is not modulo 8", netcam->height);
+        return -3;
+    }
+    
 
 
     /* Fill in camera details into context structure. */

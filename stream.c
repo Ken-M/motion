@@ -247,8 +247,8 @@ static void* handle_basic_auth(void* param)
     pthread_exit(NULL);
 
 Error:
-	MOTION_LOG(ERR, TYPE_STREAM, SHOW_ERRNO, "%s: writing %d bytes", strlen(request_auth_response_template));
-	ret = write(p->sock, request_auth_response_template, strlen (request_auth_response_template));
+    if (write(p->sock, request_auth_response_template, strlen (request_auth_response_template)) < 0)
+        MOTION_LOG(DBG, TYPE_STREAM, SHOW_ERRNO, "%s: write failure 1:handle_basic_auth");
 
 Invalid_Request:
     close(p->sock);
@@ -576,8 +576,10 @@ Error:
                 "Content-Length: %Zu\r\n\r\n",
                 request_auth_response_template, server_nonce,
                 KEEP_ALIVE_TIMEOUT, strlen(auth_failed_html_template));
-        ret = write(p->sock, buffer, strlen(buffer));
-        ret = write(p->sock, auth_failed_html_template, strlen(auth_failed_html_template));
+        if (write(p->sock, buffer, strlen(buffer)) < 0)
+            MOTION_LOG(DBG, TYPE_STREAM, SHOW_ERRNO, "%s: write failure 1:handle_md5_digest");
+        if (write(p->sock, auth_failed_html_template, strlen(auth_failed_html_template)) < 0)
+            MOTION_LOG(DBG, TYPE_STREAM, SHOW_ERRNO, "%s: write failure 2:handle_md5_digest");
     }
 
     // OK - Access
@@ -614,7 +616,8 @@ InternalError:
     if(server_pass)
         free(server_pass);
 
-    ret = write(p->sock, internal_error_template, strlen(internal_error_template));
+    if (write(p->sock, internal_error_template, strlen(internal_error_template)) < 0)
+      MOTION_LOG(DBG, TYPE_STREAM, SHOW_ERRNO, "%s: write failure 3:handle_md5_digest");
 
 Invalid_Request:
     close(p->sock);
@@ -962,7 +965,7 @@ static void stream_add_client(struct stream *list, int sc)
                                  "Cache-Control: no-cache, private\r\n"
                                  "Pragma: no-cache\r\n"
                                  "Content-Type: multipart/x-mixed-replace; "
-                                 "boundary=--BoundaryString\r\n\r\n";
+                                 "boundary=BoundaryString\r\n\r\n";
 
     memset(new, 0, sizeof(struct stream));
     new->socket = sc;
