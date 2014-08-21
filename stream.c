@@ -117,7 +117,6 @@ static int read_http_request(int sock, char* buffer, int buflen, char* uri, int 
      */
     if (nread == -1) {
         if(errno == EAGAIN) { // Timeout
-            MOTION_LOG(ERR, TYPE_STREAM, SHOW_ERRNO, "%s: 1 writing %d bytes", strlen(timeout_response_template_raw));
             ret = write(sock, timeout_response_template_raw, strlen(timeout_response_template_raw));
             return 0;
         }
@@ -129,7 +128,6 @@ static int read_http_request(int sock, char* buffer, int buflen, char* uri, int 
     ret = sscanf(buffer, "%9s %511s %9s", method, url, protocol);
 
     if (ret != 3) {
-        MOTION_LOG(ERR, TYPE_STREAM, SHOW_ERRNO, "%s: 2 writing %d bytes", sizeof(bad_request_response_raw));
         ret = write(sock, bad_request_response_raw, sizeof(bad_request_response_raw));
         return 0;
     }
@@ -137,7 +135,6 @@ static int read_http_request(int sock, char* buffer, int buflen, char* uri, int 
     /* Check Protocol */
     if (strcmp(protocol, "HTTP/1.0") && strcmp (protocol, "HTTP/1.1")) {
         /* We don't understand this protocol. Report a bad response. */
-        MOTION_LOG(ERR, TYPE_STREAM, SHOW_ERRNO, "%s: 3 writing %d bytes", sizeof(bad_request_response_raw));
         ret = write(sock, bad_request_response_raw, sizeof(bad_request_response_raw));
         return 0;
     }
@@ -149,7 +146,6 @@ static int read_http_request(int sock, char* buffer, int buflen, char* uri, int 
          */
         char response[1024];
         snprintf(response, sizeof(response), bad_method_response_template_raw, method);
-        MOTION_LOG(ERR, TYPE_STREAM, SHOW_ERRNO, "%s: 4 writing %d bytes", strlen(response));
         ret = write(sock, response, strlen (response));
 
         return 0;
@@ -174,7 +170,6 @@ static void* handle_basic_auth(void* param)
     char buffer[1024] = {'\0'};
     ssize_t length = 1023;
     char *auth, *h, *authentication;
-    int ret;
     static const char *request_auth_response_template=
         "HTTP/1.0 401 Authorization Required\r\n"
         "Server: Motion/"VERSION"\r\n"
@@ -401,7 +396,6 @@ static void* handle_md5_digest(void* param)
 #define SERVER_URI_LEN 512
     char server_uri[SERVER_URI_LEN];
     char* server_user = NULL, *server_pass = NULL;
-    int ret;
     unsigned int rand1,rand2;
     HASHHEX HA1;
     HASHHEX HA2 = "";

@@ -206,7 +206,7 @@ static void netcam_url_parse(struct url_t *parse_url, const char *text_url)
         else if (!strcmp(parse_url->service, "ftp"))
             parse_url->port = 21;
         else if (!strcmp(parse_url->service, "rtsp") && parse_url->port == 0)
-        	parse_url->port = 554;
+            parse_url->port = 554;
     }
 
     regfree(&pattbuf);
@@ -667,7 +667,6 @@ static int netcam_read_first_header(netcam_context_ptr netcam)
 
                      MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: Boundary string [%s]",
                                 netcam->boundary);
-                        
                 }
                 break;
             case 3:  /* MJPG-Block style streaming. */
@@ -1741,7 +1740,7 @@ static int netcam_read_file_jpeg(netcam_context_ptr netcam)
     /*int fstat(int filedes, struct stat *buf);*/
     do {
         if (stat(netcam->file->path, &statbuf)) {
-            MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: stat(%s) error", 
+            MOTION_LOG(CRT, TYPE_NETCAM, SHOW_ERRNO, "%s: stat(%s) error", 
                        netcam->file->path);
             return -1;
         }
@@ -2606,8 +2605,8 @@ void netcam_cleanup(netcam_context_ptr netcam, int init_retry_flag)
         ftp_free_context(netcam->ftp);
     else 
         netcam_disconnect(netcam);
+    
 
- 
     if (netcam->response != NULL) 
         free(netcam->response);
 
@@ -2674,19 +2673,19 @@ int netcam_next(struct context *cnt, unsigned char *image)
             return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
 
     	return 0;
-    } else {
-		/*
-		 * If an error occurs in the JPEG decompression which follows this,
-		 * jpeglib will return to the code within this 'if'.  Basically, our
-		 * approach is to just return a NULL (failed) to the caller (an
-		 * error message has already been produced by the libjpeg routines).
-		 */
-		if (setjmp(netcam->setjmp_buffer))
-			return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
-
-		/* If there was no error, process the latest image buffer. */
-		return netcam_proc_jpeg(netcam, image);
     }
+
+    /*
+     * If an error occurs in the JPEG decompression which follows this,
+     * jpeglib will return to the code within this 'if'.  Basically, our
+     * approach is to just return a NULL (failed) to the caller (an
+     * error message has already been produced by the libjpeg routines).
+     */
+    if (setjmp(netcam->setjmp_buffer)) 
+        return NETCAM_GENERAL_ERROR | NETCAM_JPEG_CONV_ERROR;
+    
+    /* If there was no error, process the latest image buffer. */
+    return netcam_proc_jpeg(netcam, image);
 }
 
 /**
@@ -2694,7 +2693,7 @@ int netcam_next(struct context *cnt, unsigned char *image)
  *
  *      This routine is called from the main motion thread.  It's job is
  *      to open up the requested camera device and do any required
- *      initialization.  If the camera is a streaming type, then this
+ *      initialisation.  If the camera is a streaming type, then this
  *      routine must also start up the camera-handling thread to take
  *      care of it.
  *
@@ -2861,7 +2860,7 @@ int netcam_start(struct context *cnt)
         retval = netcam_setup_rtsp(netcam, &url);
     } else if ((url.service) && (!strcmp(url.service, "rtsp"))) {
         MOTION_LOG(INF, TYPE_NETCAM, NO_ERRNO, "%s: now calling"
-                   " netcam_setup_rtsp()");
+                    " netcam_setup_rtsp()");
 
         retval = netcam_setup_rtsp(netcam, &url);
     } else {
@@ -2889,22 +2888,22 @@ int netcam_start(struct context *cnt)
     }
 
 
-	if (netcam->caps.streaming != NCS_RTSP) {
+    if (netcam->caps.streaming != NCS_RTSP) {
 
-		/*
-		 * If an error occurs in the JPEG decompression which follows this,
-		 * jpeglib will return to the code within this 'if'.  If such an error
-		 * occurs during startup, we will just abandon this attempt.
-		 */
-		if (setjmp(netcam->setjmp_buffer)) {
-			MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: libjpeg decompression failure "
-					   "on first frame - giving up!");
-			return -1;
-		}
+        /*
+        * If an error occurs in the JPEG decompression which follows this,
+        * jpeglib will return to the code within this 'if'.  If such an error
+        * occurs during startup, we will just abandon this attempt.
+        */
+        if (setjmp(netcam->setjmp_buffer)) {
+            MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: libjpeg decompression failure "
+                       "on first frame - giving up!");
+            return -1;
+        }
 
-		netcam->netcam_tolerant_check = cnt->conf.netcam_tolerant_check;
-		netcam->JFIF_marker = 0;
-		netcam_get_dimensions(netcam);
+        netcam->netcam_tolerant_check = cnt->conf.netcam_tolerant_check;
+        netcam->JFIF_marker = 0;
+        netcam_get_dimensions(netcam);
     }
     /*
     * Motion currently requires that image height and width is a
@@ -2922,7 +2921,6 @@ int netcam_start(struct context *cnt)
         return -3;
     }
     
-
 
     /* Fill in camera details into context structure. */
     cnt->imgs.width = netcam->width;
