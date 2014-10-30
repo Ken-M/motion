@@ -46,6 +46,7 @@
 #define MY_CODEC_ID_FLV1      AV_CODEC_ID_FLV1
 #define MY_CODEC_ID_FFV1      AV_CODEC_ID_FFV1
 #define MY_CODEC_ID_NONE      AV_CODEC_ID_NONE
+#define MY_CODEC_ID_MPEG2VIDEO AV_CODEC_ID_MPEG2VIDEO
 
 #else
 
@@ -53,6 +54,7 @@
 #define MY_CODEC_ID_FLV1      CODEC_ID_FLV1
 #define MY_CODEC_ID_FFV1      CODEC_ID_FFV1
 #define MY_CODEC_ID_NONE      CODEC_ID_NONE
+#define MY_CODEC_ID_MPEG2VIDEO CODEC_ID_MPEG2VIDEO
 
 #endif
 /*********************************************/
@@ -144,7 +146,7 @@ static AVOutputFormat *get_oformat(const char *codec, char *filename){
     if (strcmp(codec, "tlapse") == 0) {
         ext = ".swf";
         of = av_guess_format("swf", NULL, NULL);
-        if (of) of->video_codec = AV_CODEC_ID_MPEG2VIDEO;
+        if (of) of->video_codec = MY_CODEC_ID_MPEG2VIDEO;
     } else if (strcmp(codec, "mpeg4") == 0) {
         ext = ".avi";
         of = av_guess_format("avi", NULL, NULL);
@@ -210,7 +212,6 @@ struct ffmpeg *ffmpeg_open(char *ffmpeg_video_codec, char *filename,
      * codec and image information we need to generate movies.
      */
     ffmpeg = mymalloc(sizeof(struct ffmpeg));
-    memset(ffmpeg, 0, sizeof(struct ffmpeg));
 
     ffmpeg->vbr = vbr;
     ffmpeg->tlapse = tlapse;

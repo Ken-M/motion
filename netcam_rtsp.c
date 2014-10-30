@@ -19,8 +19,8 @@
  ***********************************************************/
 
 #include <stdio.h>
-#include "netcam_rtsp.h"
 #include "rotate.h"    /* already includes motion.h */
+#include "netcam_rtsp.h"
 
 #ifdef HAVE_FFMPEG
 
@@ -197,8 +197,10 @@ static int netcam_open_codec(int *stream_idx, AVFormatContext *fmt_ctx, enum AVM
         return -1;
     }
 
-    /* Open the codec  */
-    ret = avcodec_open2(dec_ctx, dec, NULL);
+    /* Open the codec  It is not thread safe so lock it*/
+    pthread_mutex_lock(&global_lock);
+        ret = avcodec_open2(dec_ctx, dec, NULL);
+    pthread_mutex_unlock(&global_lock);
     if (ret < 0) {
         av_strerror(ret, errstr, sizeof(errstr));
     	MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Failed to open codec!: %s", errstr);
@@ -746,9 +748,9 @@ void netcam_shutdown_rtsp(netcam_context_ptr netcam){
         MOTION_LOG(NTC, TYPE_NETCAM, NO_ERRNO,"%s: netcam shut down");
     }
 
-    if (netcam->rtsp->path != NULL) free(netcam->rtsp->path);
-    if (netcam->rtsp->user != NULL) free(netcam->rtsp->user);
-    if (netcam->rtsp->pass != NULL) free(netcam->rtsp->pass);
+    free(netcam->rtsp->path);
+    free(netcam->rtsp->user);
+    free(netcam->rtsp->pass);
 
     free(netcam->rtsp);
     netcam->rtsp = NULL;
@@ -853,21 +855,27 @@ int netcam_setup_rtsp(netcam_context_ptr netcam, struct url_t *url){
     /*
      * Warn and fix dimensions as needed.
      */
-    if (netcam->cnt->conf.width % 16) {
-        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Image width (%d) requested is not modulo 16.", netcam->cnt->conf.width);
-        netcam->cnt->conf.width = netcam->cnt->conf.width - (netcam->cnt->conf.width % 16) + 16;
-        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Adjusting width to next higher multiple of 16 (%d).", netcam->cnt->conf.width);
+    if (netcam->cnt->conf.width % 8) {
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Image width (%d) requested is not modulo 8.", netcam->cnt->conf.width);
+        netcam->cnt->conf.width = netcam->cnt->conf.width - (netcam->cnt->conf.width % 8) + 8;
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Adjusting width to next higher multiple of 8 (%d).", netcam->cnt->conf.width);
     }
-    if (netcam->cnt->conf.height % 16) {
-        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Image height (%d) requested is not modulo 16.", netcam->cnt->conf.height);
-        netcam->cnt->conf.height = netcam->cnt->conf.height - (netcam->cnt->conf.height % 16) + 16;
-        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Adjusting height to next higher multiple of 16 (%d).", netcam->cnt->conf.height);
+    if (netcam->cnt->conf.height % 8) {
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Image height (%d) requested is not modulo 8.", netcam->cnt->conf.height);
+        netcam->cnt->conf.height = netcam->cnt->conf.height - (netcam->cnt->conf.height % 8) + 8;
+        MOTION_LOG(CRT, TYPE_NETCAM, NO_ERRNO, "%s: Adjusting height to next higher multiple of 8 (%d).", netcam->cnt->conf.height);
     }
-    
-    av_register_all();
-    avformat_network_init();
-    avcodec_register_all();
 
+    /*
+     * Documentation does not indicate thread safety on these
+     * init functions but we lock them just in case.
+     */
+    pthread_mutex_lock(&global_lock);
+        av_register_all();
+        avformat_network_init();
+        avcodec_register_all();
+    pthread_mutex_unlock(&global_lock);
+    
     /*
      * The RTSP context should be all ready to attempt a connection with
      * the server, so we try ....
