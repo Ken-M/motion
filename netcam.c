@@ -2005,7 +2005,10 @@ static void *netcam_handler_loop(void *arg)
                     }
                     //Nope.  We are not or got bad image.  Reconnect
                     netcam->rtsp->status = RTSP_RECONNECTING;
-                    netcam_connect_rtsp(netcam);
+                    int at_result = netcam_connect_rtsp(netcam);
+                	if(at_result < 0 ) {
+                	MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: Bad image. Reconnecting failed.");
+                	}
                     continue;
                 }
             }

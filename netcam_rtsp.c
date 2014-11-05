@@ -704,13 +704,13 @@ int netcam_rtsp_resize(unsigned char *image , netcam_context_ptr netcam){
 int netcam_connect_rtsp(netcam_context_ptr netcam){
 #ifdef HAVE_FFMPEG
 
-    if (netcam_rtsp_open_context(netcam) < 0) return -1;
+	if (netcam_rtsp_open_context(netcam) < 0) {MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: netcam_rtsp_open_context"); return -1;}
 
-    if (netcam_rtsp_open_sws(netcam) < 0) return -1;
+    if (netcam_rtsp_open_sws(netcam) < 0) {MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: netcam_rtsp_open_sws");return -1;}
 
-    if (netcam_rtsp_resize_ntc(netcam) < 0 ) return -1;
+    if (netcam_rtsp_resize_ntc(netcam) < 0 ) {MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: netcam_rtsp_resize_ntc");return -1;}
 
-    if (netcam_read_rtsp_image(netcam) < 0) return -1;
+    if (netcam_read_rtsp_image(netcam) < 0) {MOTION_LOG(ERR, TYPE_NETCAM, NO_ERRNO, "%s: netcam_read_rtsp_image");return -1;}
 
     netcam->rtsp->status = RTSP_CONNECTED;
 
